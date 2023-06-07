@@ -262,6 +262,7 @@ void mouse_state_init(struct mouse_state *state)
 
 bool mouse_handler_begin(struct mouse_state *mouse_state, uint32_t mask)
 {
+    return true;
     if (mouse_state->handle) return true;
 
     mouse_state->handle = CGEventTapCreate(kCGAnnotatedSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault, mask, mouse_handler, mouse_state);
@@ -281,6 +282,7 @@ bool mouse_handler_begin(struct mouse_state *mouse_state, uint32_t mask)
 
 void mouse_handler_end(struct mouse_state *mouse_state)
 {
+    return;
     if (!mouse_state->handle) return;
 
     CGEventTapEnable(mouse_state->handle, false);
