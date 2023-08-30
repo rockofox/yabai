@@ -46,7 +46,22 @@ void window_manager_query_windows_for_spaces(FILE *rsp, uint64_t *space_list, in
 
     fprintf(rsp, "[");
     for (int i = 0; i < window_count; ++i) {
-        window_serialize(rsp, window_list[i]);
+        struct window *window = window_list[i];
+
+        if (!__sync_bool_compare_and_swap(&window->id_ptr, &window->id, &window->id)) {
+
+            //
+            // NOTE(koekeishiya): The window has been marked invalid by the system.
+            // Invalidation happens on the macOS event receiver thread, but our runloop
+            // is currently processing a user-initiated event so we have yet to remove
+            // our representation of said window. Do not attempt to query macOS for
+            // information about these windows.
+            //
+
+            continue;
+        }
+
+        window_serialize(rsp, window);
         if (i < window_count - 1) fprintf(rsp, ",");
     }
     fprintf(rsp, "]\n");
@@ -1206,6 +1221,13 @@ static void window_manager_make_key_window(ProcessSerialNumber *window_psn, uint
     // annotated to flow to an application.
     //
 
+    //
+    // :Sonoma
+    //
+    // TODO(koekeishiya): Causes a crash on macos Sonoma.
+    // This causes autofocus to not work.
+    //
+
     uint8_t bytes1[0xf8] = { [0x04] = 0xf8, [0x08] = 0x01, [0x3a] = 0x10 };
     uint8_t bytes2[0xf8] = { [0x04] = 0xf8, [0x08] = 0x02, [0x3a] = 0x10 };
 
@@ -1221,6 +1243,18 @@ static void window_manager_make_key_window(ProcessSerialNumber *window_psn, uint
 
 void window_manager_focus_window_without_raise(ProcessSerialNumber *window_psn, uint32_t window_id)
 {
+    //
+    // :Sonoma
+    //
+    // TODO(koekeishiya): window_manager_make_key_window causes a crash on macos Sonoma.
+    // This causes autofocus to not work.
+    //
+
+    if (workspace_is_macos_sonoma()) {
+        debug("%s is not available on macOS Sonoma..\n", __FUNCTION__);
+        return;
+    }
+
     if (psn_equals(window_psn, &g_window_manager.focused_window_psn)) {
         uint8_t bytes1[0xf8] = { [0x04] = 0xf8, [0x08] = 0x0d, [0x8a] = 0x02 };
         memcpy(bytes1 + 0x3c, &g_window_manager.focused_window_id, sizeof(uint32_t));
@@ -1247,9 +1281,33 @@ void window_manager_focus_window_without_raise(ProcessSerialNumber *window_psn, 
 void window_manager_focus_window_with_raise(ProcessSerialNumber *window_psn, uint32_t window_id, AXUIElementRef window_ref)
 {
 #if 1
-    _SLPSSetFrontProcessWithOptions(window_psn, window_id, kCPSUserGenerated);
-    window_manager_make_key_window(window_psn, window_id);
-    AXUIElementPerformAction(window_ref, kAXRaiseAction);
+    //
+    // :Sonoma
+    //
+    // TODO(koekeishiya): window_manager_make_key_window causes a crash on macos Sonoma.
+    // This causes autofocus to not work, and will likely reintroduce issue #102.
+    //
+    //   How to reproduce the original problem:
+    //
+    //   Display 1: Open Terminal (A) and a Chrome window (B)
+    //   Display 2: Open a Chrome window (C)
+    //
+    //   Focus Chrome (B) on Display 1, and then focus Terminal (A) on Display 1.
+    //   Try to focus Chrome (C) on Display 2.
+    //
+    //   When using the accessibility API to focus the window, Chrome (B) on Display 1 would be focused.
+    //
+    //     -  https://github.com/koekeishiya/yabai/issues/102
+    //
+
+    if (workspace_is_macos_sonoma()) {
+        _SLPSSetFrontProcessWithOptions(window_psn, 0, kCPSNoWindows);
+        AXUIElementPerformAction(window_ref, kAXRaiseAction);
+    } else {
+        _SLPSSetFrontProcessWithOptions(window_psn, window_id, kCPSUserGenerated);
+        window_manager_make_key_window(window_psn, window_id);
+        AXUIElementPerformAction(window_ref, kAXRaiseAction);
+    }
 #else
     scripting_addition_focus_window(window_id);
 #endif
@@ -1394,7 +1452,7 @@ struct window *window_manager_create_and_add_window(struct space_manager *sm, st
     }
 
     if (window_manager_find_lost_focused_event(wm, window->id)) {
-        event_loop_post(&g_event_loop, WINDOW_FOCUSED, (void *)(intptr_t) window->id, 0, NULL);
+        event_loop_post(&g_event_loop, WINDOW_FOCUSED, (void *)(intptr_t) window->id, 0);
         window_manager_remove_lost_focused_event(wm, window->id);
     }
 
@@ -1758,7 +1816,41 @@ enum window_op_error window_manager_swap_window(struct space_manager *sm, struct
     struct window_node *b_node = view_find_window_node(b_view, b->id);
     if (!b_node) return WINDOW_OP_ERROR_INVALID_DST_NODE;
 
-    if (a_node == b_node) return WINDOW_OP_ERROR_SAME_STACK;
+    if (a_node == b_node) {
+        int a_list_index = 0;
+        int a_order_index = 0;
+
+        int b_list_index = 0;
+        int b_order_index = 0;
+
+        for (int i = 0; i < a_node->window_count; ++i) {
+            if (a_node->window_list[i] == a->id) {
+                a_list_index = i;
+            } else if (a_node->window_list[i] == b->id) {
+                b_list_index = i;
+            }
+
+            if (a_node->window_order[i] == a->id) {
+                a_order_index = i;
+            } else if (a_node->window_order[i] == b->id) {
+                b_order_index = i;
+            }
+        }
+
+        a_node->window_list[a_list_index] = b->id;
+        a_node->window_order[a_order_index] = b->id;
+
+        a_node->window_list[b_list_index] = a->id;
+        a_node->window_order[b_order_index] = a->id;
+
+        if (a->id == wm->focused_window_id) {
+            window_manager_focus_window_with_raise(&b->application->psn, b->id, b->ref);
+        } else if (b->id == wm->focused_window_id) {
+            window_manager_focus_window_with_raise(&a->application->psn, a->id, a->ref);
+        }
+
+        return WINDOW_OP_ERROR_SUCCESS;
+    }
 
     if (window_node_contains_window(a_node, a_view->insertion_point)) {
         a_view->insertion_point = b->id;

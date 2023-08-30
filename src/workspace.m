@@ -1,7 +1,10 @@
-extern struct event_loop g_event_loop;
-
 bool workspace_event_handler_begin(void **context)
 {
+    NSOperatingSystemVersion version = [[NSProcessInfo processInfo] operatingSystemVersion];
+#define SUPPORT_MACOS_VERSION(name, major_version) _workspace_is_macos_version_##name = version.majorVersion == major_version;
+    SUPPORTED_MACOS_VERSION_LIST
+#undef SUPPORT_MACOS_VERSION
+
     workspace_context *ws_context = [workspace_context alloc];
     if (!ws_context) return false;
 
@@ -119,38 +122,7 @@ pid_t workspace_get_dock_pid(void)
     return 0;
 }
 
-static int _workspace_is_macos_version[5] = { -1, -1, -1, -1, -1 };
-
-static int workspace_is_macos_major(long major_version)
-{
-    NSOperatingSystemVersion version = [[NSProcessInfo processInfo] operatingSystemVersion];
-    return version.majorVersion == major_version;
-}
-
-bool workspace_is_macos_ventura(void)
-{
-    if (_workspace_is_macos_version[0] == -1) {
-        _workspace_is_macos_version[0] = workspace_is_macos_major(13);
-    }
-    return _workspace_is_macos_version[0];
-}
-
-bool workspace_is_macos_monterey(void)
-{
-    if (_workspace_is_macos_version[1] == -1) {
-        _workspace_is_macos_version[1] = workspace_is_macos_major(12);
-    }
-    return _workspace_is_macos_version[1];
-}
-
-bool workspace_is_macos_bigsur(void)
-{
-    if (_workspace_is_macos_version[2] == -1) {
-        _workspace_is_macos_version[2] = workspace_is_macos_major(11);
-    }
-    return _workspace_is_macos_version[2];
-}
-
+extern struct event_loop g_event_loop;
 @implementation workspace_context
 - (id)init
 {
@@ -216,7 +188,7 @@ bool workspace_is_macos_bigsur(void)
             assert(!process->terminated);
 
             debug("%s: activation policy changed for %s (%d)\n", __FUNCTION__, process->name, process->pid);
-            event_loop_post(&g_event_loop, APPLICATION_LAUNCHED, process, 0, NULL);
+            event_loop_post(&g_event_loop, APPLICATION_LAUNCHED, process, 0);
 
             //
             // :WorstApiEverMade
@@ -240,7 +212,7 @@ bool workspace_is_macos_bigsur(void)
             assert(!process->terminated);
 
             debug("%s: %s (%d) finished launching\n", __FUNCTION__, process->name, process->pid);
-            event_loop_post(&g_event_loop, APPLICATION_LAUNCHED, process, 0, NULL);
+            event_loop_post(&g_event_loop, APPLICATION_LAUNCHED, process, 0);
 
             //
             // :WorstApiEverMade
@@ -260,44 +232,44 @@ bool workspace_is_macos_bigsur(void)
 
 - (void)didWake:(NSNotification *)notification
 {
-    event_loop_post(&g_event_loop, SYSTEM_WOKE, NULL, 0, NULL);
+    event_loop_post(&g_event_loop, SYSTEM_WOKE, NULL, 0);
 }
 
 - (void)didRestartDock:(NSNotification *)notification
 {
-    event_loop_post(&g_event_loop, DOCK_DID_RESTART, NULL, 0, NULL);
+    event_loop_post(&g_event_loop, DOCK_DID_RESTART, NULL, 0);
 }
 
 - (void)didChangeMenuBarHiding:(NSNotification *)notification
 {
-    event_loop_post(&g_event_loop, MENU_BAR_HIDDEN_CHANGED, NULL, 0, NULL);
+    event_loop_post(&g_event_loop, MENU_BAR_HIDDEN_CHANGED, NULL, 0);
 }
 
 - (void)didChangeDockPref:(NSNotification *)notification
 {
-    event_loop_post(&g_event_loop, DOCK_DID_CHANGE_PREF, NULL, 0, NULL);
+    event_loop_post(&g_event_loop, DOCK_DID_CHANGE_PREF, NULL, 0);
 }
 
 - (void)activeDisplayDidChange:(NSNotification *)notification
 {
-    event_loop_post(&g_event_loop, DISPLAY_CHANGED, NULL, 0, NULL);
+    event_loop_post(&g_event_loop, DISPLAY_CHANGED, NULL, 0);
 }
 
 - (void)activeSpaceDidChange:(NSNotification *)notification
 {
-    event_loop_post(&g_event_loop, SPACE_CHANGED, NULL, 0, NULL);
+    event_loop_post(&g_event_loop, SPACE_CHANGED, NULL, 0);
 }
 
 - (void)didHideApplication:(NSNotification *)notification
 {
     pid_t pid = [[notification.userInfo objectForKey:NSWorkspaceApplicationKey] processIdentifier];
-    event_loop_post(&g_event_loop, APPLICATION_HIDDEN, (void *)(intptr_t) pid, 0, NULL);
+    event_loop_post(&g_event_loop, APPLICATION_HIDDEN, (void *)(intptr_t) pid, 0);
 }
 
 - (void)didUnhideApplication:(NSNotification *)notification
 {
     pid_t pid = [[notification.userInfo objectForKey:NSWorkspaceApplicationKey] processIdentifier];
-    event_loop_post(&g_event_loop, APPLICATION_VISIBLE, (void *)(intptr_t) pid, 0, NULL);
+    event_loop_post(&g_event_loop, APPLICATION_VISIBLE, (void *)(intptr_t) pid, 0);
 }
 
 @end
