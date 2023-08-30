@@ -66,7 +66,7 @@ void border_hide_all(void)
 
 void border_draw_outter(struct window *window) {
     CGContextSaveGState(window->border.context);
-    CGContextSetRGBStrokeColor(window->border.context, 1.f, 1.f, 1.f, 1.f);
+    CGContextSetRGBStrokeColor(window->border.context, 0.114f, 0.114f, 0.114f, 1.f);
     CGContextSetLineWidth(window->border.context, g_window_manager.border_width * 2.f - 2.f);
     CGContextStrokeRect(window->border.context,
                         CGRectInset(window->border.frame,
