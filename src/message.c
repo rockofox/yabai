@@ -32,6 +32,9 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_ANIMATION_DURATION    "window_animation_duration"
 #define COMMAND_CONFIG_ANIMATION_FRAME_RATE  "window_animation_frame_rate"
 #define COMMAND_CONFIG_BORDER                "window_border"
+// Do this when I am less lazy
+// #define COMMAND_CONFIG_OUTER_BORDER          "window_outer_border"
+// #define COMMAND_CONFIG_OUTER_BORDER_COLOR    "window_outer_border_color"
 #define COMMAND_CONFIG_BORDER_HIDPI          "window_border_hidpi"
 #define COMMAND_CONFIG_BORDER_BLUR           "window_border_blur"
 #define COMMAND_CONFIG_BORDER_WIDTH          "window_border_width"
