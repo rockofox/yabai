@@ -1221,44 +1221,31 @@ static void window_manager_make_key_window(ProcessSerialNumber *window_psn, uint
     // annotated to flow to an application.
     //
 
-    //
-    // :Sonoma
-    //
-    // TODO(koekeishiya): Causes a crash on macos Sonoma.
-    // This causes autofocus to not work.
-    //
+    static uint8_t bytes[0xf8];
 
-    uint8_t bytes1[0xf8] = { [0x04] = 0xf8, [0x08] = 0x01, [0x3a] = 0x10 };
-    uint8_t bytes2[0xf8] = { [0x04] = 0xf8, [0x08] = 0x02, [0x3a] = 0x10 };
+    bytes[0x04] = 0xf8;
+    bytes[0x3a] = 0x10;
+    memcpy(bytes + 0x3c, &window_id, sizeof(uint32_t));
+    memset(bytes + 0x20, 0xff, 0x10);
 
-    memcpy(bytes1 + 0x3c, &window_id, sizeof(uint32_t));
-    memset(bytes1 + 0x20, 0xFF, 0x10);
+    bytes[0x08] = 0x01;
+    SLPSPostEventRecordTo(window_psn, bytes);
 
-    memcpy(bytes2 + 0x3c, &window_id, sizeof(uint32_t));
-    memset(bytes2 + 0x20, 0xFF, 0x10);
-
-    SLPSPostEventRecordTo(window_psn, bytes1);
-    SLPSPostEventRecordTo(window_psn, bytes2);
+    bytes[0x08] = 0x02;
+    SLPSPostEventRecordTo(window_psn, bytes);
 }
 
 void window_manager_focus_window_without_raise(ProcessSerialNumber *window_psn, uint32_t window_id)
 {
-    //
-    // :Sonoma
-    //
-    // TODO(koekeishiya): window_manager_make_key_window causes a crash on macos Sonoma.
-    // This causes autofocus to not work.
-    //
-
-    if (workspace_is_macos_sonoma()) {
-        debug("%s is not available on macOS Sonoma..\n", __FUNCTION__);
-        return;
-    }
-
     if (psn_equals(window_psn, &g_window_manager.focused_window_psn)) {
-        uint8_t bytes1[0xf8] = { [0x04] = 0xf8, [0x08] = 0x0d, [0x8a] = 0x02 };
-        memcpy(bytes1 + 0x3c, &g_window_manager.focused_window_id, sizeof(uint32_t));
-        SLPSPostEventRecordTo(&g_window_manager.focused_window_psn, bytes1);
+        static uint8_t bytes[0xf8];
+
+        bytes[0x04] = 0xf8;
+        bytes[0x08] = 0x0d;
+
+        bytes[0x8a] = 0x02;
+        memcpy(bytes + 0x3c, &g_window_manager.focused_window_id, sizeof(uint32_t));
+        SLPSPostEventRecordTo(&g_window_manager.focused_window_psn, bytes);
 
         //
         // @hack
@@ -1269,9 +1256,9 @@ void window_manager_focus_window_without_raise(ProcessSerialNumber *window_psn, 
 
         usleep(10000);
 
-        uint8_t bytes2[0xf8] = { [0x04] = 0xf8, [0x08] = 0x0d, [0x8a] = 0x01 };
-        memcpy(bytes2 + 0x3c, &window_id, sizeof(uint32_t));
-        SLPSPostEventRecordTo(window_psn, bytes2);
+        bytes[0x8a] = 0x01;
+        memcpy(bytes + 0x3c, &window_id, sizeof(uint32_t));
+        SLPSPostEventRecordTo(window_psn, bytes);
     }
 
     _SLPSSetFrontProcessWithOptions(window_psn, window_id, kCPSUserGenerated);
@@ -1281,33 +1268,9 @@ void window_manager_focus_window_without_raise(ProcessSerialNumber *window_psn, 
 void window_manager_focus_window_with_raise(ProcessSerialNumber *window_psn, uint32_t window_id, AXUIElementRef window_ref)
 {
 #if 1
-    //
-    // :Sonoma
-    //
-    // TODO(koekeishiya): window_manager_make_key_window causes a crash on macos Sonoma.
-    // This causes autofocus to not work, and will likely reintroduce issue #102.
-    //
-    //   How to reproduce the original problem:
-    //
-    //   Display 1: Open Terminal (A) and a Chrome window (B)
-    //   Display 2: Open a Chrome window (C)
-    //
-    //   Focus Chrome (B) on Display 1, and then focus Terminal (A) on Display 1.
-    //   Try to focus Chrome (C) on Display 2.
-    //
-    //   When using the accessibility API to focus the window, Chrome (B) on Display 1 would be focused.
-    //
-    //     -  https://github.com/koekeishiya/yabai/issues/102
-    //
-
-    if (workspace_is_macos_sonoma()) {
-        _SLPSSetFrontProcessWithOptions(window_psn, 0, kCPSNoWindows);
-        AXUIElementPerformAction(window_ref, kAXRaiseAction);
-    } else {
-        _SLPSSetFrontProcessWithOptions(window_psn, window_id, kCPSUserGenerated);
-        window_manager_make_key_window(window_psn, window_id);
-        AXUIElementPerformAction(window_ref, kAXRaiseAction);
-    }
+    _SLPSSetFrontProcessWithOptions(window_psn, window_id, kCPSUserGenerated);
+    window_manager_make_key_window(window_psn, window_id);
+    AXUIElementPerformAction(window_ref, kAXRaiseAction);
 #else
     scripting_addition_focus_window(window_id);
 #endif
@@ -1999,7 +1962,7 @@ enum window_op_error window_manager_apply_grid(struct space_manager *sm, struct 
 
 void window_manager_toggle_window_topmost(struct window *window)
 {
-    bool is_topmost = window_is_topmost(window);
+    bool is_topmost = window_level(window) == CGWindowLevelForKey(LAYER_ABOVE);
     window_manager_set_window_layer(window, is_topmost ? LAYER_NORMAL : LAYER_ABOVE);
 }
 
@@ -2072,7 +2035,7 @@ void window_manager_toggle_window_shadow(struct space_manager *sm, struct window
 
 void window_manager_wait_for_native_fullscreen_transition(struct window *window)
 {
-    if (workspace_is_macos_monterey() || workspace_is_macos_ventura()) {
+    if (workspace_is_macos_monterey() || workspace_is_macos_ventura() || workspace_is_macos_sonoma()) {
         while (!space_is_user(space_manager_active_space())) {
 
             //

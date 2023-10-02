@@ -1211,8 +1211,8 @@ static EVENT_HANDLER(MOUSE_MOVED)
                     struct window *sub_window = window_manager_find_window(&g_window_manager, wid);
                     if (!sub_window) continue;
 
-                    if (!window_check_flag(sub_window, WINDOW_FLOAT)) continue;
-                    if (window_is_topmost(sub_window))                continue;
+                    if (!window_check_flag(sub_window, WINDOW_FLOAT))                 continue;
+                    if (window_level(sub_window) == CGWindowLevelForKey(LAYER_ABOVE)) continue;
 
                     if (CGRectContainsRect(window->frame, sub_window->frame)) {
                         occludes_window = true;
@@ -1358,7 +1358,7 @@ static EVENT_HANDLER(MISSION_CONTROL_EXIT)
         SLSOrderWindow(g_connection, feedback_wid, 1, 0);
     }
 
-    if (!workspace_is_macos_ventura()) {
+    if (!workspace_is_macos_ventura() && !workspace_is_macos_sonoma()) {
         if (g_mission_control_active == 1 || g_mission_control_active == 2) {
             window_manager_correct_for_mission_control_changes(&g_space_manager, &g_window_manager);
         }
@@ -1373,7 +1373,7 @@ static EVENT_HANDLER(DOCK_DID_RESTART)
 {
     debug("%s:\n", __FUNCTION__);
 
-    if (workspace_is_macos_monterey() || workspace_is_macos_ventura()) {
+    if (workspace_is_macos_monterey() || workspace_is_macos_ventura() || workspace_is_macos_sonoma()) {
         mission_control_unobserve();
         mission_control_observe();
     }
