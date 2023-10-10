@@ -39,6 +39,7 @@ struct window
     uint8_t rule_flags;
     uint8_t flags;
     float opacity;
+    struct border border;
 };
 
 enum window_flag
@@ -60,6 +61,7 @@ enum window_rule_flag
     WINDOW_RULE_FULLSCREEN = 1 << 1,
     WINDOW_RULE_MFF        = 1 << 2,
     WINDOW_RULE_MFF_VALUE  = 1 << 3,
+    WINDOW_RULE_BORDER     = 1 << 4,
 };
 
 #define window_rule_check_flag(w, x) ((w)->rule_flags  &  (x))
