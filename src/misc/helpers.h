@@ -16,7 +16,7 @@ static const char *bool_str[] = { "off", "on" };
 
 static const char *layer_str[] =
 {
-    [0] = "",
+    [0] = "unknown",
     [LAYER_BELOW] = "below",
     [LAYER_NORMAL] = "normal",
     [LAYER_ABOVE] = "above"
@@ -40,7 +40,13 @@ static inline float get_seconds_elapsed(uint64_t start, uint64_t end)
 
 static inline float ease_out_cubic(float t)
 {
-    return 1.0f - powf(1.0f - t, 3.0f);
+    // float c1 = 1.70158;
+    // float c3 = 2.70158;
+    // return 1.f + c3 * powf(t - 1.f, 3.f) + c1 * powf(t - 1.f, 2.f);
+  
+    // return 1.0f - powf(1.0f - t, 3.0f);
+    // return t == 1.f ? 1.f : 1.f - powf(2.f, -10.f * t);
+    return sqrt(1.f - powf(t - 1.f, 2.f));
 }
 
 #define ANIMATE_DELAY(current_frame_duration)                                                    \
@@ -70,37 +76,16 @@ static inline float ease_out_cubic(float t)
         CFRelease(transaction);                                                                  \
                                                                                                  \
         float frame_elapsed = get_seconds_elapsed(last_counter, get_wall_clock());               \
+        int frame_skip = (int)((frame_elapsed / frame_duration));                                \
         if (frame_elapsed < frame_duration) {                                                    \
             ANIMATE_DELAY(frame_duration);                                                       \
-        } else {                                                                                 \
-            int frame_skip = (int)((frame_elapsed / frame_duration) + 0.5f);                     \
+        } else if (frame_skip == 1) {                                                            \
             frame_index += frame_skip;                                                           \
             ANIMATE_DELAY(frame_duration * frame_skip);                                          \
         }                                                                                        \
                                                                                                  \
         last_counter = get_wall_clock();                                                         \
     }                                                                                            \
-}
-
-static inline bool socket_open(int *sockfd)
-{
-    *sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-    return *sockfd != -1;
-}
-
-static inline bool socket_connect(int sockfd, char *socket_path)
-{
-    struct sockaddr_un socket_address;
-    socket_address.sun_family = AF_UNIX;
-
-    snprintf(socket_address.sun_path, sizeof(socket_address.sun_path), "%s", socket_path);
-    return connect(sockfd, (struct sockaddr *) &socket_address, sizeof(socket_address)) != -1;
-}
-
-static inline void socket_close(int sockfd)
-{
-    shutdown(sockfd, SHUT_RDWR);
-    close(sockfd);
 }
 
 static inline char *json_optional_bool(int value)

@@ -7,9 +7,16 @@ extern struct mouse_state g_mouse_state;
 extern int g_mission_control_active;
 extern int g_connection;
 extern void *g_workspace_context;
+extern int g_layer_below_window_level;
 
 static void window_did_receive_focus(struct window_manager *wm, struct mouse_state *ms, struct window *window)
 {
+    struct window *focused_window = window_manager_find_window(wm, wm->focused_window_id);
+    if (focused_window && focused_window != window && window_space(focused_window) == window_space(window)) {
+        window_manager_set_window_opacity(wm, focused_window, g_window_manager.normal_window_opacity);
+        border_deactivate(focused_window);
+    }
+
     window_manager_set_window_opacity(wm, window, wm->active_window_opacity);
     border_activate(window);
 
@@ -109,6 +116,17 @@ static EVENT_HANDLER(APPLICATION_LAUNCHED)
     int view_count = 0;
     struct view **view_list = ts_alloc_list(struct view *, window_count);
 
+    if (window_count == 1) {
+        struct window *window = window_list[0];
+        if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
+            if (default_origin) sid = window_space(window);
+            struct view* view = space_manager_tile_window_on_space_with_insertion_point(&g_space_manager, window, sid, prev_window_id);
+            window_manager_add_managed_window(&g_window_manager, window, view);
+        }
+        event_signal_push(SIGNAL_WINDOW_CREATED, window);
+        return;
+    }
+
     for (int i = 0; i < window_count; ++i) {
         struct window *window = window_list[i];
 
@@ -128,6 +146,7 @@ static EVENT_HANDLER(APPLICATION_LAUNCHED)
             // This is necessary to make sure that we do not call the AX API for each modification to the tree.
             //
 
+            scripting_addition_set_layer(window->id, LAYER_BELOW);
             view_add_window_node_with_insertion_point(view, window, prev_window_id);
             window_manager_add_managed_window(&g_window_manager, window, view);
 
@@ -197,6 +216,17 @@ static EVENT_HANDLER(APPLICATION_TERMINATED)
             //
 
             view_remove_window_node(view, window);
+            if (i == window_count - 1) {
+              struct window *focused_window = window_manager_focused_window(&g_window_manager);
+              if (focused_window && focused_window->application == application) {
+                struct window *closest_window = window_manager_find_closest_managed_window_in_direction(&g_window_manager, focused_window, DIR_EAST);
+                if (!closest_window) closest_window = window_manager_find_closest_managed_window_in_direction(&g_window_manager, focused_window, DIR_WEST);
+                if (!closest_window) closest_window = window_manager_find_closest_managed_window_in_direction(&g_window_manager, focused_window, DIR_SOUTH);
+                if (!closest_window) closest_window = window_manager_find_closest_managed_window_in_direction(&g_window_manager, focused_window, DIR_NORTH);
+                if (closest_window) window_manager_focus_window_with_raise(&closest_window->application->psn, closest_window->id, closest_window->ref);
+              }
+            }
+
             window_manager_remove_managed_window(&g_window_manager, window->id);
 
             view->is_dirty = true;
@@ -247,28 +277,20 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
         return;
     }
 
-    event_loop_post(&g_event_loop, APPLICATION_DEACTIVATED, (void *)(intptr_t) g_process_manager.front_pid, 0);
-    event_loop_post(&g_event_loop, APPLICATION_ACTIVATED, (void *)(intptr_t) process->pid, 0);
-
     debug("%s: %s (%d)\n", __FUNCTION__, process->name, process->pid);
     g_process_manager.switch_event_time = GetCurrentEventTime();
     g_process_manager.last_front_pid = g_process_manager.front_pid;
     g_process_manager.front_pid = process->pid;
-
     event_signal_push(SIGNAL_APPLICATION_FRONT_SWITCHED, NULL);
-}
-#pragma clang diagnostic pop
-
-static EVENT_HANDLER(APPLICATION_ACTIVATED)
-{
-    struct application *application = window_manager_find_application(&g_window_manager, (pid_t)(intptr_t) context);
-    if (!application) return;
-
-    debug("%s: %s\n", __FUNCTION__, application->name);
-    event_signal_push(SIGNAL_APPLICATION_ACTIVATED, application);
 
     uint32_t application_focused_window_id = application_focused_window(application);
     if (!application_focused_window_id) {
+        struct window *focused_window = window_manager_find_window(&g_window_manager, g_window_manager.focused_window_id);
+        if (focused_window) {
+            window_manager_set_window_opacity(&g_window_manager, focused_window, g_window_manager.normal_window_opacity);
+            border_deactivate(focused_window);
+        }
+
         g_window_manager.last_window_id = g_window_manager.focused_window_id;
         g_window_manager.focused_window_id = 0;
         g_window_manager.focused_window_psn = application->psn;
@@ -278,6 +300,12 @@ static EVENT_HANDLER(APPLICATION_ACTIVATED)
 
     struct window *window = window_manager_find_window(&g_window_manager, application_focused_window_id);
     if (!window) {
+        struct window *focused_window = window_manager_find_window(&g_window_manager, g_window_manager.focused_window_id);
+        if (focused_window) {
+            window_manager_set_window_opacity(&g_window_manager, focused_window, g_window_manager.normal_window_opacity);
+            border_deactivate(focused_window);
+        }
+
         window_manager_add_lost_focused_event(&g_window_manager, application_focused_window_id);
         return;
     }
@@ -285,29 +313,7 @@ static EVENT_HANDLER(APPLICATION_ACTIVATED)
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
 }
-
-static EVENT_HANDLER(APPLICATION_DEACTIVATED)
-{
-    struct application *application = window_manager_find_application(&g_window_manager, (pid_t)(intptr_t) context);
-    if (!application) return;
-
-    debug("%s: %s\n", __FUNCTION__, application->name);
-    event_signal_push(SIGNAL_APPLICATION_DEACTIVATED, application);
-
-    struct window *focused_window = window_manager_find_window(&g_window_manager, application_focused_window(application));
-    if (!focused_window) return;
-
-    window_manager_set_window_opacity(&g_window_manager, focused_window, g_window_manager.normal_window_opacity);
-    border_deactivate(focused_window);
-
-    if (!window_level_is_standard(focused_window) || !window_is_standard(focused_window)) {
-        struct window *main_window = window_manager_find_window(&g_window_manager, application_main_window(application));
-        if (main_window && main_window != focused_window) {
-            window_manager_set_window_opacity(&g_window_manager, main_window, g_window_manager.normal_window_opacity);
-            border_deactivate(main_window);
-        }
-    }
-}
+#pragma clang diagnostic pop
 
 static EVENT_HANDLER(APPLICATION_VISIBLE)
 {
@@ -342,6 +348,7 @@ static EVENT_HANDLER(APPLICATION_VISIBLE)
             // This is necessary to make sure that we do not call the AX API for each modification to the tree.
             //
 
+            scripting_addition_set_layer(window->id, LAYER_BELOW);
             view_add_window_node_with_insertion_point(view, window, prev_window_id);
             window_manager_add_managed_window(&g_window_manager, window, view);
 
@@ -403,6 +410,7 @@ static EVENT_HANDLER(APPLICATION_HIDDEN)
             // This is necessary to make sure that we do not call the AX API for each modification to the tree.
             //
 
+            scripting_addition_set_layer(window->id, LAYER_NORMAL);
             view_remove_window_node(view, window);
             window_manager_remove_managed_window(&g_window_manager, window->id);
             window_manager_purify_window(&g_window_manager, window);
@@ -475,6 +483,10 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     border_destroy(window);
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+    struct window *next_window = window_manager_find_natural_next_window(&g_space_manager, &g_window_manager, window);
+
+    if (next_window) window_manager_focus_window_with_raise(&next_window->application->psn, next_window->id, next_window->ref);
+
     if (view) {
         space_manager_untile_window(&g_space_manager, view, window);
         window_manager_remove_managed_window(&g_window_manager, window->id);
@@ -509,12 +521,6 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
 
     if (!application_is_frontmost(window->application)) {
         return;
-    }
-
-    struct window *focused_window = window_manager_find_window(&g_window_manager, g_window_manager.focused_window_id);
-    if (focused_window && focused_window != window) {
-        window_manager_set_window_opacity(&g_window_manager, focused_window, g_window_manager.normal_window_opacity);
-        border_deactivate(focused_window);
     }
 
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
@@ -586,7 +592,6 @@ static EVENT_HANDLER(WINDOW_RESIZED)
     window->frame = new_frame;
 
     if (!was_fullscreen && is_fullscreen) {
-        window_manager_make_window_topmost(&g_window_manager, window, false);
         border_hide(window);
 
         struct view *view = window_manager_find_managed_window(&g_window_manager, window);
@@ -604,7 +609,6 @@ static EVENT_HANDLER(WINDOW_RESIZED)
         }
 
         border_show(window);
-        window_manager_make_window_topmost(&g_window_manager, window, window_check_flag(window, WINDOW_FLOAT));
     } else if (!was_fullscreen == !is_fullscreen) {
         if (g_mouse_state.current_action == MOUSE_MODE_MOVE && g_mouse_state.window == window) {
             g_mouse_state.window_frame.size = g_mouse_state.window->frame.size;
@@ -750,10 +754,8 @@ static EVENT_HANDLER(SLS_WINDOW_ORDER_CHANGED)
 
     struct border *border = &window->border;
     if (border->id && border_should_order_in(window)) {
-        int window_level = 0;
-        SLSGetWindowLevel(g_connection, window_id, &window_level);
-        SLSSetWindowLevel(g_connection, border->id, window_level);
-        SLSOrderWindow(g_connection, border->id, 1, window_id);
+        SLSSetWindowLevel(g_connection, border->id, window_level(window_id));
+        SLSOrderWindow(g_connection, border->id, -1, window_id);
     }
 }
 
@@ -837,6 +839,7 @@ static EVENT_HANDLER(SLS_SPACE_REMOVE_WINDOW)
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     if (view) {
+        scripting_addition_set_layer(window->id, LAYER_NORMAL);
         struct window_node *node = view_remove_window_node(view, window);
         window_manager_remove_managed_window(&g_window_manager, window->id);
 
@@ -1211,8 +1214,8 @@ static EVENT_HANDLER(MOUSE_MOVED)
                     struct window *sub_window = window_manager_find_window(&g_window_manager, wid);
                     if (!sub_window) continue;
 
-                    if (!window_check_flag(sub_window, WINDOW_FLOAT))                 continue;
-                    if (window_level(sub_window) == CGWindowLevelForKey(LAYER_ABOVE)) continue;
+                    if (!window_check_flag(sub_window, WINDOW_FLOAT))               continue;
+                    if (window_level(sub_window->id) != g_layer_below_window_level) continue;
 
                     if (CGRectContainsRect(window->frame, sub_window->frame)) {
                         occludes_window = true;
@@ -1245,13 +1248,6 @@ static EVENT_HANDLER(MISSION_CONTROL_SHOW_ALL_WINDOWS)
     debug("%s:\n", __FUNCTION__);
     g_mission_control_active = 2;
 
-    border_hide_all();
-
-    for (int i = 0; i < buf_len(g_window_manager.insert_feedback_windows); ++i) {
-        uint32_t feedback_wid = g_window_manager.insert_feedback_windows[i];
-        SLSOrderWindow(g_connection, feedback_wid, 0, 0);
-    }
-
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, NULL);
 }
 
@@ -1259,13 +1255,6 @@ static EVENT_HANDLER(MISSION_CONTROL_SHOW_FRONT_WINDOWS)
 {
     debug("%s:\n", __FUNCTION__);
     g_mission_control_active = 3;
-
-    border_hide_all();
-
-    for (int i = 0; i < buf_len(g_window_manager.insert_feedback_windows); ++i) {
-        uint32_t feedback_wid = g_window_manager.insert_feedback_windows[i];
-        SLSOrderWindow(g_connection, feedback_wid, 0, 0);
-    }
 
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, NULL);
 }
@@ -1275,13 +1264,6 @@ static EVENT_HANDLER(MISSION_CONTROL_SHOW_DESKTOP)
     debug("%s:\n", __FUNCTION__);
     g_mission_control_active = 4;
 
-    border_hide_all();
-
-    for (int i = 0; i < buf_len(g_window_manager.insert_feedback_windows); ++i) {
-        uint32_t feedback_wid = g_window_manager.insert_feedback_windows[i];
-        SLSOrderWindow(g_connection, feedback_wid, 0, 0);
-    }
-
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, NULL);
 }
 
@@ -1289,13 +1271,6 @@ static EVENT_HANDLER(MISSION_CONTROL_ENTER)
 {
     debug("%s:\n", __FUNCTION__);
     g_mission_control_active = 1;
-
-    border_hide_all();
-
-    for (int i = 0; i < buf_len(g_window_manager.insert_feedback_windows); ++i) {
-        uint32_t feedback_wid = g_window_manager.insert_feedback_windows[i];
-        SLSOrderWindow(g_connection, feedback_wid, 0, 0);
-    }
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1f * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         event_loop_post(&g_event_loop, MISSION_CONTROL_CHECK_FOR_EXIT, NULL, 0);
@@ -1351,13 +1326,6 @@ static EVENT_HANDLER(MISSION_CONTROL_EXIT)
 {
     debug("%s:\n", __FUNCTION__);
 
-    border_show_all();
-
-    for (int i = 0; i < buf_len(g_window_manager.insert_feedback_windows); ++i) {
-        uint32_t feedback_wid = g_window_manager.insert_feedback_windows[i];
-        SLSOrderWindow(g_connection, feedback_wid, 1, 0);
-    }
-
     if (!workspace_is_macos_ventura() && !workspace_is_macos_sonoma()) {
         if (g_mission_control_active == 1 || g_mission_control_active == 2) {
             window_manager_correct_for_mission_control_changes(&g_space_manager, &g_window_manager);
@@ -1391,11 +1359,6 @@ static EVENT_HANDLER(MENU_OPENED)
     if (++is_menu_open == 1) {
         ffm_value = g_window_manager.ffm_mode;
         g_window_manager.ffm_mode = FFM_DISABLED;
-    }
-
-    if (g_window_manager.enable_window_topmost) {
-        uint32_t window_id = (uint32_t)(intptr_t) context;
-        scripting_addition_set_layer(window_id, LAYER_ABOVE);
     }
 }
 
@@ -1434,34 +1397,12 @@ static EVENT_HANDLER(SYSTEM_WOKE)
     }
 }
 
-static EVENT_HANDLER(DAEMON_MESSAGE)
+static EVENT_HANDLER(MACH_MESSAGE)
 {
-    FILE *rsp         = NULL;
-    int bytes_read    = 0;
-    int bytes_to_read = 0;
-
-    if (read(param1, &bytes_to_read, sizeof(int)) == sizeof(int)) {
-        char *message = ts_alloc_unaligned(bytes_to_read);
-
-        do {
-            int cur_read = read(param1, message+bytes_read, bytes_to_read-bytes_read);
-            if (cur_read <= 0) break;
-
-            bytes_read += cur_read;
-        } while (bytes_read < bytes_to_read);
-
-        if ((bytes_read == bytes_to_read) && (rsp = fdopen(param1, "w"))) {
-            debug_message(__FUNCTION__, message);
-            handle_message(rsp, message);
-
-            fflush(rsp);
-            fclose(rsp);
-
-            return;
-        }
-    }
-
-    socket_close(param1);
+  if (context) handle_message_mach(context);
+  mach_msg_destroy(&((struct mach_buffer*) context)->message.header);
+  free(context);
+  return;
 }
 
 static void *event_loop_run(void *context)

@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [6.0.0] - 2023-10-10
+### Added
+- Window query property `layer` has been added [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+
+### Changed
+- Fix issue causing window animations to flicker on macOS Ventura and Sonoma [#1879](https://github.com/koekeishiya/yabai/issues/1879)
+- All managed (read: tiled) windows are now automatically placed in the *below* layer. All unmanaged (read: floating) windows will use the default macOS *normal* layer and appear above the tiled layer, replicating the `window_topmost` functionality in a robust way [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- Automatic window opacity changes will now only apply to focus switches within the same space [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- `space --focus` command now takes an optional `<DISPLAY_SEL>` instead of an optional `<SPACE_SEL>`
+
+### Removed
+- Config option `window_topmost` has been removed [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- Window command `--toggle` option `topmost` has been removed [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- Window query property `is-topmost` has been removed [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- Signal `application_activated` and `application_deactivated` has been removed; use `application_front_switched` instead [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+
 ## [5.0.9] - 2023-10-01
 ### Changed
 - Updated scripting-addition to support macOS Sonoma 14.0 [#1772](https://github.com/koekeishiya/yabai/issues/1772)
@@ -488,7 +504,8 @@ The *window_destroyed* signal is now triggered for windows that are implicitly d
 ### Added
 - First official release
 
-[Unreleased]: https://github.com/koekeishiya/yabai/compare/v5.0.9...HEAD
+[Unreleased]: https://github.com/koekeishiya/yabai/compare/v6.0.0...HEAD
+[6.0.0]: https://github.com/koekeishiya/yabai/compare/v5.0.9...v6.0.0
 [5.0.9]: https://github.com/koekeishiya/yabai/compare/v5.0.8...v5.0.9
 [5.0.8]: https://github.com/koekeishiya/yabai/compare/v5.0.7...v5.0.8
 [5.0.7]: https://github.com/koekeishiya/yabai/compare/v5.0.6...v5.0.7

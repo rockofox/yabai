@@ -20,9 +20,9 @@
 #define HELP_OPT_LONG           "--help"
 #define HELP_OPT_SHRT           "-h"
 
-#define MAJOR  5
+#define MAJOR  6
 #define MINOR  0
-#define PATCH  9
+#define PATCH  0
 
 struct event_loop g_event_loop;
 void *g_workspace_context;
@@ -31,8 +31,9 @@ struct display_manager g_display_manager;
 struct space_manager g_space_manager;
 struct window_manager g_window_manager;
 struct mouse_state g_mouse_state;
-int g_normal_window_level;
-int g_floating_window_level;
+int g_layer_normal_window_level;
+int g_layer_below_window_level;
+int g_layer_above_window_level;
 int g_connection;
 pid_t g_pid;
 
@@ -44,6 +45,8 @@ char g_socket_file[MAXLEN];
 char g_config_file[4096];
 char g_lock_file[MAXLEN];
 bool g_verbose;
+
+struct mach_server g_mach_server;
 
 static int client_send_message(int argc, char **argv)
 {
@@ -61,10 +64,10 @@ static int client_send_message(int argc, char **argv)
 
     for (int i = 1; i < argc; ++i) {
         argl[i] = strlen(argv[i]);
-        message_length += argl[i];
+        message_length += argl[i] + 1;
     }
 
-    char *message = malloc(sizeof(int)+message_length);
+    char *message = malloc(sizeof(int)+message_length + 1);
     char *temp = sizeof(int)+message;
 
     memcpy(message, &message_length, sizeof(int));
@@ -75,45 +78,22 @@ static int client_send_message(int argc, char **argv)
     }
     *temp++ = '\0';
 
-    int sockfd;
-    char socket_file[MAXLEN];
-    snprintf(socket_file, sizeof(socket_file), SOCKET_PATH_FMT, user);
-
-    if (!socket_open(&sockfd)) {
-        error("yabai-msg: failed to open socket..\n");
-    }
-
-    if (!socket_connect(sockfd, socket_file)) {
-        error("yabai-msg: failed to connect to socket..\n");
-    }
-
-    if (send(sockfd, message, sizeof(int)+message_length, 0) == -1) {
-        error("yabai-msg: failed to send data..\n");
-    }
-
-    shutdown(sockfd, SHUT_WR);
-    free(message);
+    char* rsp = mach_send_message(mach_get_bs_port(),
+                                  message,
+                                  message_length,
+                                  true               );
 
     int result = EXIT_SUCCESS;
     FILE *output = stdout;
-    int bytes_read = 0;
-    char rsp[BUFSIZ];
 
-    while ((bytes_read = read(sockfd, rsp, sizeof(rsp)-1)) > 0) {
-        rsp[bytes_read] = '\0';
-
-        if (rsp[0] == FAILURE_MESSAGE[0]) {
-            result = EXIT_FAILURE;
-            output = stderr;
-            fprintf(output, "%s", rsp + 1);
-            fflush(output);
-        } else {
-            fprintf(output, "%s", rsp);
-            fflush(output);
-        }
+    if (!rsp) return result;
+    if (rsp[0] == FAILURE_MESSAGE[0]) {
+        result = EXIT_FAILURE;
+        output = stderr;
+        fprintf(output, "%s", rsp + 1);
+    } else {
+        fprintf(output, "%s", rsp);
     }
-
-    socket_close(sockfd);
     return result;
 }
 
@@ -176,10 +156,10 @@ static inline bool configure_settings_and_acquire_lock(void)
 
     g_pid = getpid();
     g_connection = SLSMainConnectionID();
-    g_normal_window_level   = CGWindowLevelForKey(LAYER_NORMAL);
-    g_floating_window_level = CGWindowLevelForKey(LAYER_ABOVE);
+    g_layer_normal_window_level = CGWindowLevelForKey(LAYER_NORMAL);
+    g_layer_below_window_level  = CGWindowLevelForKey(LAYER_BELOW);
+    g_layer_above_window_level  = CGWindowLevelForKey(LAYER_ABOVE);
 
-    NSApplicationLoad();
     signal(SIGCHLD, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     CGSetLocalEventsSuppressionInterval(0.0f);
@@ -321,6 +301,7 @@ static void parse_arguments(int argc, char **argv)
     }
 }
 
+extern int RunApplicationEventLoop(void);
 int main(int argc, char **argv)
 {
     if (argc > 1) {
@@ -394,19 +375,12 @@ int main(int argc, char **argv)
     space_manager_begin(&g_space_manager);
     window_manager_begin(&g_space_manager, &g_window_manager);
 
-    if (!message_loop_begin(g_socket_file)) {
+    if (!mach_server_begin(&g_mach_server, mach_message_handler)) {
         error("yabai: could not start message loop! abort..\n");
     }
 
     exec_config_file();
 
-    for (;;) {
-        NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-        CFRunLoopRunResult result = CFRunLoopRunInMode(kCFRunLoopDefaultMode, 300, true);
-        [pool drain];
-
-        if (result == kCFRunLoopRunFinished || result == kCFRunLoopRunStopped) break;
-    }
-
+    RunApplicationEventLoop();
     return 0;
 }

@@ -4,8 +4,7 @@ extern int csr_get_active_config(uint32_t *config);
 #define CSR_ALLOW_UNRESTRICTED_FS 0x02
 #define CSR_ALLOW_TASK_FOR_PID    0x04
 
-#define SA_SOCKET_PATH_FMT "/tmp/yabai-sa_%s.socket"
-extern char g_sa_socket_file[MAXLEN];
+mach_port_t g_sa_port = 0;
 
 static char osax_base_dir[MAXLEN];
 static char osax_contents_dir[MAXLEN];
@@ -156,7 +155,7 @@ static bool scripting_addition_set_socket_path(void)
     struct passwd *pw = getpwuid(uid);
     if (!pw) return false;
 
-    snprintf(g_sa_socket_file, sizeof(g_sa_socket_file), SA_SOCKET_PATH_FMT, pw->pw_name);
+    /* snprintf(g_sa_socket_file, sizeof(g_sa_socket_file), SA_SOCKET_PATH_FMT, pw->pw_name); */
     return true;
 }
 
@@ -239,33 +238,18 @@ cleanup:
 
 static bool scripting_addition_request_handshake(char *version, uint32_t *attrib)
 {
-    int sockfd;
-    bool result = false;
-    char rsp[BUFSIZ] = {};
     char bytes[0x100] = { 0x01, SA_OPCODE_HANDSHAKE };
+    char* response = mach_send_message(mach_get_bs_port_sa(), bytes, 2, true);
 
-    if (socket_open(&sockfd)) {
-        if (socket_connect(sockfd, g_sa_socket_file)) {
-            if (send(sockfd, bytes, 2, 0) != -1) {
-                int length = recv(sockfd, rsp, sizeof(rsp)-1, 0);
-                if (length <= 0) goto out;
+    if (!response) return false;
+    char *zero = response;
+    while (*zero != '\0') ++zero;
 
-                char *zero = rsp;
-                while (*zero != '\0') ++zero;
+    assert(*zero == '\0');
+    memcpy(version, response, zero - response + 1);
+    memcpy(attrib, zero+1, sizeof(uint32_t));
 
-                assert(*zero == '\0');
-                memcpy(version, rsp, zero - rsp + 1);
-                memcpy(attrib, zero+1, sizeof(uint32_t));
-
-                result = true;
-            }
-        }
-
-out:
-        socket_close(sockfd);
-    }
-
-    return result;
+    return true;
 }
 
 static int scripting_addition_perform_validation(void)
@@ -420,22 +404,11 @@ out:
 
 static bool scripting_addition_send_bytes(char *bytes, int length)
 {
-    int sockfd;
-    char dummy;
-    bool result = false;
+    if (!g_sa_port) g_sa_port = mach_get_bs_port_sa();
 
-    if (socket_open(&sockfd)) {
-        if (socket_connect(sockfd, g_sa_socket_file)) {
-            if (send(sockfd, bytes, length, 0) != -1) {
-                recv(sockfd, &dummy, 1, 0);
-                result = true;
-            }
-        }
-
-        socket_close(sockfd);
-    }
-
-    return result;
+    char* rsp = mach_send_message(g_sa_port, bytes, length, true);
+    if (rsp && *rsp == 'k') return true;
+    return false;
 }
 
 bool scripting_addition_focus_space(uint64_t sid)
@@ -583,16 +556,49 @@ bool scripting_addition_scale_window(uint32_t wid, float x, float y, float w, fl
     return scripting_addition_send_bytes(bytes, length);
 }
 
-bool scripting_addition_swap_window_proxy(uint32_t a_wid, uint32_t b_wid, float opacity, int order)
+bool scripting_addition_transform_window_list(float alpha, uint32_t* wid, float* x, float* y, float* s_w, float* s_h, uint32_t count)
+{
+    char bytes[count * 4 * 5 + 0x100];
+    uint32_t length = 2;
+
+    pack(bytes, count, length);
+    pack(bytes, alpha, length);
+
+    for (int i = 0; i < count; i++) {
+      pack(bytes, *(wid + i), length);
+      pack(bytes, *(x + i), length);
+      pack(bytes, *(y + i), length);
+      pack(bytes, *(s_w + i), length);
+      pack(bytes, *(s_h + i), length);
+    }
+
+    bytes[1] = SA_OPCODE_WINDOW_TRANSFORM;
+    bytes[0] = 0;
+
+    return scripting_addition_send_bytes(bytes, sizeof(bytes));
+}
+
+bool scripting_addition_swap_window_proxy_in(uint32_t wid, uint32_t proxy_wid)
 {
     char bytes[0x100];
 
     char length = 2;
-    pack(bytes, a_wid, length);
-    pack(bytes, b_wid, length);
-    pack(bytes, opacity, length);
-    pack(bytes, order, length);
-    bytes[1] = SA_OPCODE_WINDOW_SWAP_PROXY;
+    pack(bytes, wid, length);
+    pack(bytes, proxy_wid, length);
+    bytes[1] = SA_OPCODE_WINDOW_SWAP_PROXY_IN;
+    bytes[0] = length-1;
+
+    return scripting_addition_send_bytes(bytes, length);
+}
+
+bool scripting_addition_swap_window_proxy_out(uint32_t wid, uint32_t proxy_wid)
+{
+    char bytes[0x100];
+
+    char length = 2;
+    pack(bytes, wid, length);
+    pack(bytes, proxy_wid, length);
+    bytes[1] = SA_OPCODE_WINDOW_SWAP_PROXY_OUT;
     bytes[0] = length-1;
 
     return scripting_addition_send_bytes(bytes, length);

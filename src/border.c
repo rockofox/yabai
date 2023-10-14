@@ -216,13 +216,13 @@ void border_create(struct window *window)
     CGRect frame = CGRectNull;
     CGSNewRegionWithRect(&frame, &window->border.region);
 
-    uint64_t tag = 1ULL << 46;
+    uint64_t tag = 1ULL << 1;
     SLSNewWindow(g_connection, 2, 0, 0, window->border.region, &window->border.id);
     SLSSetWindowTags(g_connection, window->border.id, &tag, 64);
     sls_window_disable_shadow(window->border.id);
     SLSSetWindowResolution(g_connection, window->border.id, g_window_manager.border_resolution);
     SLSSetWindowOpacity(g_connection, window->border.id, 0);
-    SLSSetWindowLevel(g_connection, window->border.id, window_level(window));
+    SLSSetWindowLevel(g_connection, window->border.id, window_level(window->id));
 
     if (g_window_manager.border_blur) {
         SLSSetWindowBackgroundBlurRadiusStyle(g_connection, window->border.id, 24, 1);

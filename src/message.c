@@ -26,7 +26,6 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_WINDOW_ORIGIN         "window_origin_display"
 #define COMMAND_CONFIG_WINDOW_PLACEMENT      "window_placement"
 #define COMMAND_CONFIG_WINDOW_ZOOM_PERSIST   "window_zoom_persist"
-#define COMMAND_CONFIG_TOPMOST               "window_topmost"
 #define COMMAND_CONFIG_OPACITY               "window_opacity"
 #define COMMAND_CONFIG_OPACITY_DURATION      "window_opacity_duration"
 #define COMMAND_CONFIG_ANIMATION_DURATION    "window_animation_duration"
@@ -54,6 +53,10 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_SPLIT_RATIO           "split_ratio"
 #define COMMAND_CONFIG_SPLIT_TYPE            "split_type"
 #define COMMAND_CONFIG_AUTO_BALANCE          "auto_balance"
+#define COMMAND_CONFIG_AUTO_PAD              "auto_padding"
+#define COMMAND_CONFIG_AUTO_PAD_WIDTH        "auto_padding_width"
+#define COMMAND_CONFIG_AUTO_PAD_HEIGHT       "auto_padding_height"
+#define COMMAND_CONFIG_AUTO_PAD_ASPECT       "auto_padding_min_aspect"
 #define COMMAND_CONFIG_MOUSE_MOD             "mouse_modifier"
 #define COMMAND_CONFIG_MOUSE_ACTION1         "mouse_action1"
 #define COMMAND_CONFIG_MOUSE_ACTION2         "mouse_action2"
@@ -160,7 +163,6 @@ extern bool g_verbose;
 #define ARGUMENT_WINDOW_LAYER_BELOW   "below"
 #define ARGUMENT_WINDOW_LAYER_NORMAL  "normal"
 #define ARGUMENT_WINDOW_LAYER_ABOVE   "above"
-#define ARGUMENT_WINDOW_TOGGLE_ON_TOP "topmost"
 #define ARGUMENT_WINDOW_TOGGLE_FLOAT  "float"
 #define ARGUMENT_WINDOW_TOGGLE_STICKY "sticky"
 #define ARGUMENT_WINDOW_TOGGLE_SHADOW "shadow"
@@ -1113,17 +1115,6 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
-        } else if (token_equals(command, COMMAND_CONFIG_TOPMOST)) {
-            struct token value = get_token(&message);
-            if (!token_is_valid(value)) {
-                fprintf(rsp, "%s\n", bool_str[g_window_manager.enable_window_topmost]);
-            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
-                g_window_manager.enable_window_topmost = false;
-            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
-                g_window_manager.enable_window_topmost = true;
-            } else {
-                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
-            }
         } else if (token_equals(command, COMMAND_CONFIG_OPACITY)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
@@ -1477,6 +1468,32 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
+        } else if (token_equals(command, COMMAND_CONFIG_AUTO_PAD)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_space_manager.auto_pad]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_space_manager.auto_pad = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_space_manager.auto_pad = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_AUTO_PAD_WIDTH)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INT) {
+              g_space_manager.auto_pad_width = value.int_value;
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_AUTO_PAD_HEIGHT)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INT) {
+              g_space_manager.auto_pad_height = value.int_value;
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_AUTO_PAD_ASPECT)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_FLOAT) {
+              g_space_manager.auto_pad_min_aspect = value.float_value;
+            }
         } else if (token_equals(command, COMMAND_CONFIG_MOUSE_MOD)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
@@ -1675,11 +1692,11 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                 }
             }
         } else if (token_equals(command, COMMAND_SPACE_CREATE)) {
-            struct selector selector = parse_space_selector(rsp, &message, acting_sid, true);
+            struct selector selector = parse_display_selector(rsp, &message, display_manager_active_display_id(), true);
 
             if (token_is_valid(selector.token)) {
-                if (selector.did_parse && selector.sid) {
-                    acting_sid = selector.sid;
+                if (selector.did_parse && selector.did) {
+                    acting_sid = display_space_id(selector.did);
                 } else {
                     return;
                 }
@@ -2069,8 +2086,6 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
             struct token value = get_token(&message);
             if (token_equals(value, ARGUMENT_WINDOW_TOGGLE_FLOAT)) {
                 window_manager_make_window_floating(&g_space_manager, &g_window_manager, acting_window, !window_check_flag(acting_window, WINDOW_FLOAT));
-            } else if (token_equals(value, ARGUMENT_WINDOW_TOGGLE_ON_TOP)) {
-                window_manager_toggle_window_topmost(acting_window);
             } else if (token_equals(value, ARGUMENT_WINDOW_TOGGLE_STICKY)) {
                 window_manager_make_window_sticky(&g_space_manager, &g_window_manager, acting_window, !window_check_flag(acting_window, WINDOW_STICKY));
             } else if (token_equals(value, ARGUMENT_WINDOW_TOGGLE_SHADOW)) {
@@ -2620,8 +2635,14 @@ snext:
     }
 }
 
-void handle_message(FILE *rsp, char *message)
+void handle_message_mach(struct mach_buffer* buffer)
 {
+    char* response = NULL;
+    char* message = (char*)((int*)buffer->message.descriptor.address + 1);
+    size_t length = 0;
+    FILE* rsp = open_memstream(&response, &length);
+    fprintf(rsp, "");
+
     struct token domain = get_token(&message);
     if (token_equals(domain, DOMAIN_CONFIG)) {
         handle_domain_config(rsp, domain, message);
@@ -2640,47 +2661,15 @@ void handle_message(FILE *rsp, char *message)
     } else {
         daemon_fail(rsp, "unknown domain '%.*s'\n", domain.length, domain.text);
     }
+
+    if (rsp) fclose(rsp);
+
+    mach_send_message(buffer->message.header.msgh_remote_port, response,
+                                                               length,
+                                                               false    );
+    if (response) free(response);
 }
 
-static void *message_loop_run(void *context)
-{
-    while (g_message_loop.is_running) {
-        int sockfd = accept(g_message_loop.sockfd, NULL, 0);
-        if (sockfd == -1) continue;
-
-        event_loop_post(&g_event_loop, DAEMON_MESSAGE, NULL, sockfd);
-    }
-
-    return NULL;
-}
-
-bool message_loop_begin(char *socket_path)
-{
-    struct sockaddr_un socket_address;
-    socket_address.sun_family = AF_UNIX;
-    snprintf(socket_address.sun_path, sizeof(socket_address.sun_path), "%s", socket_path);
-    unlink(socket_path);
-
-    if ((g_message_loop.sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
-        return false;
-    }
-
-    if (bind(g_message_loop.sockfd, (struct sockaddr *) &socket_address, sizeof(socket_address)) == -1) {
-        return false;
-    }
-
-    if (chmod(socket_path, 0600) != 0) {
-        return false;
-    }
-
-    if (listen(g_message_loop.sockfd, SOMAXCONN) == -1) {
-        return false;
-    }
-
-    fcntl(g_message_loop.sockfd, F_SETFD, FD_CLOEXEC | fcntl(g_message_loop.sockfd, F_GETFD));
-
-    g_message_loop.is_running = true;
-    pthread_create(&g_message_loop.thread, NULL, &message_loop_run, NULL);
-
-    return true;
+MACH_HANDLER(mach_message_handler) {
+  event_loop_post(&g_event_loop, MACH_MESSAGE, message, 0);
 }

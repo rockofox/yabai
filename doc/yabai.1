@@ -2,12 +2,12 @@
 .\"     Title: yabai
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.18
-.\"      Date: 2023-08-15
+.\"      Date: 2023-10-10
 .\"    Manual: Yabai Manual
 .\"    Source: Yabai
 .\"  Language: English
 .\"
-.TH "YABAI" "1" "2023-08-15" "Yabai" "Yabai Manual"
+.TH "YABAI" "1" "2023-10-10" "Yabai" "Yabai Manual"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -207,13 +207,6 @@ Specify whether managed windows should become the first or second leaf\-node.
 Windows will keep their zoom\-state through layout changes.
 .RE
 .sp
-\fBwindow_topmost\fP [\fI<BOOL_SEL>\fP]
-.RS 4
-Make floating windows stay on top.
-.br
-System Integrity Protection must be partially disabled.
-.RE
-.sp
 \fBwindow_shadow\fP [\fI<BOOL_SEL>|float\fP]
 .RS 4
 Draw shadow for windows.
@@ -231,6 +224,20 @@ System Integrity Protection must be partially disabled.
 \fBwindow_opacity_duration\fP [\fI<floating point number>\fP]
 .RS 4
 Duration of transition between active / normal opacity.
+.br
+System Integrity Protection must be partially disabled.
+.RE
+.sp
+\fBactive_window_opacity\fP [\fI<FLOAT_SEL>\fP]
+.RS 4
+Opacity of the focused window.
+.br
+System Integrity Protection must be partially disabled.
+.RE
+.sp
+\fBnormal_window_opacity\fP [\fI<FLOAT_SEL>\fP]
+.RS 4
+Opacity of an unfocused window.
 .br
 System Integrity Protection must be partially disabled.
 .RE
@@ -401,9 +408,9 @@ Focus the given space.
 System Integrity Protection must be partially disabled.
 .RE
 .sp
-\fB\-\-create\fP  [\fI<SPACE_SEL>\fP]
+\fB\-\-create\fP  [\fI<DISPLAY_SEL>\fP]
 .RS 4
-Create a new space on the display of the given space. If none specified, use the selected space instead.
+Create a new space on the given display. If none specified, use the display of the active space instead.
 .br
 System Integrity Protection must be partially disabled.
 .RE
@@ -536,11 +543,11 @@ Resize the selected window by moving the given handle \fIdx\fP pixels horizontal
 If type is \fIrel\fP the split ratio of the selected window is changed by \fIdr\fP, otherwise \fIdr\fP will become the new split ratio. A positive/negative delta will increase/decrease the size of the left\-child.
 .RE
 .sp
-\fB\-\-toggle\fP \fIfloat|sticky|topmost|pip|shadow|border|split|zoom\-parent|zoom\-fullscreen|native\-fullscreen|expose\fP
+\fB\-\-toggle\fP \fIfloat|sticky|pip|shadow|border|split|zoom\-parent|zoom\-fullscreen|native\-fullscreen|expose\fP
 .RS 4
 Toggle the given property of the selected window.
 .br
-The following properties require System Integrity Protection to be partially disabled: sticky, topmost, pip, shadow.
+The following properties require System Integrity Protection to be partially disabled: sticky, pip, shadow.
 .RE
 .sp
 \fB\-\-layer\fP \fI<LAYER>\fP
@@ -688,6 +695,7 @@ WINDOW
     "display": number,
     "space": number,
     "level": number,
+    "layer": string,
     "opacity": number,
     "split\-type": string,
     "split\-child": string,
@@ -705,7 +713,6 @@ WINDOW
     "is\-hidden": bool,
     "is\-floating": bool,
     "is\-sticky": bool,
-    "is\-topmost": bool,
     "is\-grabbed": bool
 }
 .fam
@@ -895,24 +902,6 @@ Passes one argument: $YABAI_PROCESS_ID
 Triggered when the front\-most application changes.
 .br
 Passes two arguments: $YABAI_PROCESS_ID, $YABAI_RECENT_PROCESS_ID
-.RE
-.sp
-\fBapplication_activated\fP
-.RS 4
-Triggered when an application is activated.
-.br
-Eligible for \fBapp\fP filter.
-.br
-Passes one argument: $YABAI_PROCESS_ID
-.RE
-.sp
-\fBapplication_deactivated\fP
-.RS 4
-Triggered when an application is deactivated.
-.br
-Eligible for \fBapp\fP filter.
-.br
-Passes one argument: $YABAI_PROCESS_ID
 .RE
 .sp
 \fBapplication_visible\fP
@@ -1114,4 +1103,3 @@ Arbitrary command executed through \fB/usr/bin/env sh \-c\fP
 If \fByabai\fP can\(cqt handle a message, it will return a non\-zero exit code.
 .SH "AUTHOR"
 .sp
-Åsmund Vikane <aasvi93 at gmail.com>

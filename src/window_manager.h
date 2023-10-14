@@ -86,7 +86,6 @@ struct window_manager
     enum window_origin_mode window_origin_mode;
     bool enable_window_border;
     bool enable_window_opacity;
-    bool enable_window_topmost;
     float active_window_opacity;
     float normal_window_opacity;
     float window_opacity_duration;
@@ -126,6 +125,7 @@ struct window *window_manager_find_closest_managed_window_in_direction(struct wi
 struct window *window_manager_find_prev_managed_window(struct space_manager *sm, struct window_manager *wm, struct window *window);
 struct window *window_manager_find_next_managed_window(struct space_manager *sm, struct window_manager *wm, struct window *window);
 struct window *window_manager_find_first_managed_window(struct space_manager *sm, struct window_manager *wm);
+struct window *window_manager_find_natural_next_window(struct space_manager *sm, struct window_manager *wm, struct window* window);
 struct window *window_manager_find_last_managed_window(struct space_manager *sm, struct window_manager *wm);
 struct window *window_manager_find_recent_managed_window(struct space_manager *sm, struct window_manager *wm);
 struct window *window_manager_find_prev_window_in_stack(struct space_manager *sm, struct window_manager *wm, struct window *window);
@@ -193,9 +193,7 @@ enum window_op_error window_manager_apply_grid(struct space_manager *sm, struct 
 void window_manager_purify_window(struct window_manager *wm, struct window *window);
 void window_manager_make_window_floating(struct space_manager *sm, struct window_manager *wm, struct window *window, bool should_float);
 void window_manager_make_window_sticky(struct space_manager *sm, struct window_manager *wm, struct window *window, bool should_sticky);
-void window_manager_make_window_topmost(struct window_manager *wm, struct window *window, bool topmost);
 bool window_manager_set_window_layer(struct window *window, int layer);
-void window_manager_toggle_window_topmost(struct window *window);
 void window_manager_toggle_window_shadow(struct space_manager *sm, struct window_manager *wm, struct window *window);
 void window_manager_toggle_window_parent(struct space_manager *sm, struct window_manager *wm, struct window *window);
 void window_manager_toggle_window_fullscreen(struct space_manager *sm, struct window_manager *wm, struct window *window);
